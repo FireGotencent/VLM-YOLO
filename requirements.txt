@@ -1,0 +1,32 @@
+# ===========================================
+# VisionGuide LLM System - 依赖配置
+# ===========================================
+
+# ---- 视觉处理 ----
+ultralytics>=8.0.0          # YOLOv8 目标检测
+opencv-python>=4.8.0        # 图像处理
+pillow>=10.0.0              # 图像工具
+
+# ---- 大模型推理 ----
+ollama>=0.1.0               # Ollama 本地部署
+openai>=1.0.0               # OpenAI API
+anthropic>=0.18.0           # Claude API
+google-generativeai>=0.4.0  # Gemini API
+
+# ---- 语音交互 ----
+pyttsx3>=2.90               # 语音合成 (TTS)
+SpeechRecognition>=3.10.0   # 语音识别 (ASR)
+pyaudio>=0.2.14             # 音频处理
+
+# ---- 图形界面 ----
+PyQt6>=6.5.0                # GUI 框架
+
+# ---- 工具库 ----
+numpy>=1.24.0               # 数值计算
+pydantic>=2.0.0             # 数据验证
+loguru>=0.7.0               # 日志管理
+python-dotenv>=1.0.0        # 环境变量管理
+PyYAML>=6.0                 # YAML 配置解析
+
+# ---- 开发工具 ----
+pytest>=7.4.0               # 测试框架

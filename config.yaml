@@ -1,0 +1,107 @@
+# ===========================================
+# VisionGuide LLM System - 全局配置
+# ===========================================
+
+# ---- 摄像头配置 ----
+camera:
+  # 摄像头类型: local(本地) / ip_webcam / droidcam / rtsp / http
+  type: "ip_webcam"
+  
+  # 本地摄像头配置
+  device_id: 0              # 摄像头设备ID
+  
+  # 网络摄像头配置 (当 type 不为 local 时使用)
+  # 手机 IP 地址或完整 URL
+  #
+  # 📱 同一 WiFi 下:
+  #   IP Webcam: "192.168.1.100" (默认端口 8080)
+  #   DroidCam: "192.168.1.100" (默认端口 4747)
+  #
+  # 🌐 跨网络 (使用 Tailscale):
+  #   1. 手机和电脑都安装 Tailscale 并登录同一账号
+  #   2. 使用手机的 Tailscale IP (如 "100.64.0.2")
+  #   详见: docs/tailscale_setup.md
+  #
+  # 🔗 直接 URL:
+  #   RTSP: "rtsp://192.168.1.100:554/stream"
+  #   HTTP: "http://192.168.1.100:8080/video"
+  #
+  network_source: "100.98.158.25"
+  network_port: 8080        # 网络摄像头端口
+  
+  # 通用参数
+  width: 1280               # 分辨率宽度
+  height: 720               # 分辨率高度
+  fps: 30                   # 帧率
+
+
+
+# ---- YOLO 目标检测配置 ----
+detection:
+  model: "yolov8n.pt"       # 模型文件 (n/s/m/l/x)
+  confidence: 0.5           # 置信度阈值
+  iou_threshold: 0.45       # NMS IOU 阈值
+  device: "auto"            # 推理设备 (auto/cpu/cuda:0)
+  classes:                  # 关注的目标类别
+    - person                # 行人
+    - car                   # 汽车
+    - bicycle               # 自行车
+    - motorcycle            # 摩托车
+    - bus                   # 公交车
+    - truck                 # 卡车
+    - dog                   # 狗
+    - cat                   # 猫
+    - chair                 # 椅子
+    - bench                 # 长凳
+
+# ---- LLM 配置 ----
+llm:
+  provider: "ollama"        # 提供商: ollama/openai/claude/gemini
+  
+  # Ollama 本地配置
+  ollama:
+    base_url: "http://localhost:11434"
+    model: "qwen2.5:7b"     # 使用的模型
+    
+  # OpenAI 配置
+  openai:
+    base_url: "https://api.openai.com/v1"
+    model: "gpt-4o-mini"
+    # api_key: 从环境变量 OPENAI_API_KEY 读取
+    
+  # Claude 配置
+  claude:
+    model: "claude-3-haiku-20240307"
+    # api_key: 从环境变量 ANTHROPIC_API_KEY 读取
+    
+  # Gemini 配置
+  gemini:
+    model: "gemini-1.5-flash"
+    # api_key: 从环境变量 GOOGLE_API_KEY 读取
+  
+  # 通用参数
+  temperature: 0.7
+  max_tokens: 512
+  timeout: 30               # API 超时时间(秒)
+
+# ---- 语音配置 ----
+voice:
+  tts:
+    rate: 180               # 语速 (词/分钟)
+    volume: 0.9             # 音量 (0.0-1.0)
+    language: "zh"          # 语言
+  asr:
+    language: "zh-CN"       # 识别语言
+    timeout: 5              # 监听超时(秒)
+
+# ---- 导航配置 ----
+navigation:
+  warning_distance: 2.0     # 警告距离(米)
+  danger_distance: 1.0      # 危险距离(米)
+  update_interval: 1.0      # 更新间隔(秒)
+
+# ---- 日志配置 ----
+logging:
+  level: "INFO"             # 日志级别
+  file: "logs/vgllm.log"    # 日志文件
+  rotation: "10 MB"         # 日志轮转大小

@@ -1,0 +1,26 @@
+# ===========================================
+# VisionGuide Server - 服务端配置
+# ===========================================
+
+server:
+  host: "0.0.0.0"           # 监听地址 (0.0.0.0 允许外部连接)
+  port: 8765                # WebSocket 端口
+  max_clients: 5            # 最大客户端数
+
+processing:
+  target_fps: 10            # 目标处理帧率
+  jpeg_quality: 80          # JPEG 压缩质量 (1-100)
+  max_frame_size: 1048576   # 最大帧大小 (1MB)
+
+detection:
+  model: "yolov8n.pt"
+  confidence: 0.5
+  device: "auto"
+
+llm:
+  provider: "ollama"
+  model: "qwen2.5:7b"
+  use_llm: false            # 是否启用 LLM (可关闭以提高速度)
+
+logging:
+  level: "INFO"
