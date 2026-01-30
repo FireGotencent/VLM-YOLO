@@ -38,7 +38,7 @@ camera:
 
 # ---- YOLO 目标检测配置 ----
 detection:
-  model: "yolov8n.pt"       # 模型文件 (n/s/m/l/x)
+  model: "yolo26n.pt"       # 模型文件 (n/s/m/l/x)
   confidence: 0.5           # 置信度阈值
   iou_threshold: 0.45       # NMS IOU 阈值
   device: "auto"            # 推理设备 (auto/cpu/cuda:0)

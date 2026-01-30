@@ -13,7 +13,7 @@ processing:
   max_frame_size: 1048576   # 最大帧大小 (1MB)
 
 detection:
-  model: "yolov8n.pt"
+  model: "yolo26n.pt"
   confidence: 0.5
   device: "auto"
 

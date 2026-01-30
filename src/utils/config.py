@@ -28,7 +28,7 @@ class CameraConfig(BaseModel):
 
 class DetectionConfig(BaseModel):
     """目标检测配置"""
-    model: str = "yolov8n.pt"
+    model: str = "yolo26n.pt"
     confidence: float = 0.5
     iou_threshold: float = 0.45
     device: str = "auto"

@@ -56,7 +56,7 @@ class VisionGuideServer:
         self,
         host: str = "0.0.0.0",
         port: int = 8765,
-        model_path: str = "yolov8n.pt",
+        model_path: str = "yolo26n.pt",
         confidence: float = 0.5,
         use_llm: bool = False
     ):
@@ -252,7 +252,7 @@ async def main():
     server = VisionGuideServer(
         host="0.0.0.0",
         port=8765,
-        model_path="yolov8n.pt",
+        model_path="yolo26n.pt",
         confidence=0.5,
         use_llm=False  # 禁用 LLM 以提高速度
     )

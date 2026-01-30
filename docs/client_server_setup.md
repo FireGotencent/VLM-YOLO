@@ -109,7 +109,7 @@ server:
   port: 8765          # WebSocket 端口
 
 detection:
-  model: "yolov8n.pt" # YOLO 模型
+  model: "yolo26n.pt" # YOLO 模型
   confidence: 0.5     # 置信度阈值
 ```
 
