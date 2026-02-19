@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Set
 import numpy as np
 import cv2
 import websockets
+import yaml
 from websockets.server import WebSocketServerProtocol
 
 import sys
@@ -58,11 +59,25 @@ class VisionGuideServer:
         port: int = 8765,
         model_path: str = "yolo26n.pt",
         confidence: float = 0.5,
-        use_llm: bool = False
+        device: str = "auto",
+        max_clients: int = 5,
+        max_frame_size: int = 10 * 1024 * 1024,
+        use_llm: bool = False,
+        llm_provider: str = "ollama",
+        llm_model: str = "qwen2.5:7b",
+        llm_base_url: Optional[str] = None,
+        llm_min_interval: float = 2.0
     ):
         self.host = host
         self.port = port
         self.use_llm = use_llm
+        self._max_clients = max_clients
+        self._ws_max_size = max(1024 * 1024, int(max_frame_size * 2))
+        self._llm_provider = llm_provider
+        self._llm_model = llm_model
+        self._llm_base_url = llm_base_url
+        self._llm_min_interval = max(0.0, float(llm_min_interval))
+        self._last_llm_time = 0.0
         
         # 客户端连接
         self._clients: Set[WebSocketServerProtocol] = set()
@@ -70,7 +85,8 @@ class VisionGuideServer:
         # YOLO 检测器
         self._detector = YOLODetector(
             model_path=model_path,
-            confidence=confidence
+            confidence=confidence,
+            device=device
         )
         
         # 统计
@@ -92,9 +108,21 @@ class VisionGuideServer:
         # 初始化 LLM (可选)
         if self.use_llm:
             try:
+                from src.reasoning.llm_engine import LLMEngine
                 from src.reasoning.navigation_advisor import NavigationAdvisor
-                self._advisor = NavigationAdvisor()
-                logger.info("LLM 导航顾问初始化成功")
+
+                llm_kwargs = {}
+                if self._llm_provider in ("openai", "ollama") and self._llm_base_url:
+                    llm_kwargs["base_url"] = self._llm_base_url
+
+                self._advisor = NavigationAdvisor(
+                    LLMEngine(
+                        provider=self._llm_provider,
+                        model=self._llm_model,
+                        **llm_kwargs
+                    )
+                )
+                logger.info(f"LLM 导航顾问初始化成功 (provider={self._llm_provider}, model={self._llm_model})")
             except Exception as e:
                 logger.warning(f"LLM 初始化失败: {e}")
         
@@ -105,7 +133,7 @@ class VisionGuideServer:
             self._handle_client,
             self.host,
             self.port,
-            max_size=10 * 1024 * 1024  # 10MB
+            max_size=self._ws_max_size
         ):
             logger.info("服务器已启动，等待客户端连接...")
             await asyncio.Future()  # 永久运行
@@ -114,6 +142,11 @@ class VisionGuideServer:
         """处理客户端连接"""
         client_id = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
         logger.info(f"客户端连接: {client_id}")
+
+        if self._max_clients > 0 and len(self._clients) >= self._max_clients:
+            logger.warning(f"拒绝连接（超过最大客户端数 {self._max_clients}）: {client_id}")
+            await websocket.close(code=4000, reason="too many clients")
+            return
         
         self._clients.add(websocket)
         
@@ -185,7 +218,8 @@ class VisionGuideServer:
             objects.append(obj)
         
         # 生成语音文本
-        tts_text = self._generate_tts_text(detections)
+        frame_height, frame_width = frame.shape[:2]
+        tts_text = await self._generate_tts_text(detections, frame_width, frame_height)
         
         # 计算处理时间
         process_time = (time.time() - start_time) * 1000
@@ -210,16 +244,48 @@ class VisionGuideServer:
             fps = self._frame_count / elapsed
             logger.info(f"已处理 {self._frame_count} 帧, 平均 {fps:.1f} FPS")
     
-    def _generate_tts_text(self, detections: List[Detection]) -> str:
+    def _estimate_distance(self, detection: Detection, frame_width: int, frame_height: int) -> float:
+        """基于目标框面积的粗略距离估计（米）"""
+        try:
+            frame_area = max(1, int(frame_width) * int(frame_height))
+            ratio = detection.area / frame_area
+        except Exception:
+            return 2.0
+
+        if ratio >= 0.20:
+            return 0.8
+        if ratio >= 0.10:
+            return 1.2
+        if ratio >= 0.05:
+            return 2.0
+        if ratio >= 0.02:
+            return 3.0
+        return 4.0
+
+    async def _generate_tts_text(self, detections: List[Detection], frame_width: int, frame_height: int) -> str:
         """生成语音播报文本"""
         if not detections:
             return ""
         
         # 使用 LLM（如果启用）
         if self._advisor:
-            alert = self._advisor.quick_alert(detections)
-            if alert:
-                return alert
+            now = time.time()
+            if now - self._last_llm_time >= self._llm_min_interval:
+                self._last_llm_time = now
+
+                top_det = max(detections, key=lambda x: x.confidence)
+                name_zh = self._detector.get_class_name_zh(top_det.class_name)
+                distance = self._estimate_distance(top_det, frame_width, frame_height)
+
+                try:
+                    return await asyncio.to_thread(
+                        self._advisor.generate_warning,
+                        top_det,
+                        distance=distance,
+                        object_name=name_zh
+                    )
+                except Exception as e:
+                    logger.warning(f"LLM 生成播报失败: {e}")
         
         # 简单生成
         if len(detections) == 1:
@@ -241,20 +307,55 @@ class VisionGuideServer:
         return len(self._clients)
 
 
+def load_server_config(config_path: Optional[str] = None) -> dict:
+    """
+    加载服务端配置（server/config.yaml）
+
+    Args:
+        config_path: 可选的配置文件路径
+
+    Returns:
+        dict: 配置字典
+    """
+    path = Path(config_path) if config_path else (Path(__file__).parent / "config.yaml")
+    if not path.exists():
+        return {}
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except Exception as e:
+        logger.warning(f"加载服务端配置失败: {e}")
+        return {}
+
+
 async def main():
     """主函数"""
-    setup_logger(level="INFO")
+    config = load_server_config()
+    setup_logger(level=config.get("logging", {}).get("level", "INFO"))
     
     logger.info("=" * 50)
     logger.info("VisionGuide Server 启动")
     logger.info("=" * 50)
     
+    server_cfg = config.get("server", {})
+    processing_cfg = config.get("processing", {})
+    detection_cfg = config.get("detection", {})
+    llm_cfg = config.get("llm", {})
+
     server = VisionGuideServer(
-        host="0.0.0.0",
-        port=8765,
-        model_path="yolo26n.pt",
-        confidence=0.5,
-        use_llm=False  # 禁用 LLM 以提高速度
+        host=server_cfg.get("host", "0.0.0.0"),
+        port=int(server_cfg.get("port", 8765)),
+        max_clients=int(server_cfg.get("max_clients", 5)),
+        max_frame_size=int(processing_cfg.get("max_frame_size", 10 * 1024 * 1024)),
+        model_path=detection_cfg.get("model", "yolo26n.pt"),
+        confidence=float(detection_cfg.get("confidence", 0.5)),
+        device=str(detection_cfg.get("device", "auto")),
+        use_llm=bool(llm_cfg.get("use_llm", False)),
+        llm_provider=str(llm_cfg.get("provider", "ollama")),
+        llm_model=str(llm_cfg.get("model", "qwen2.5:7b")),
+        llm_base_url=llm_cfg.get("base_url"),
+        llm_min_interval=float(llm_cfg.get("min_interval", 2.0)),
     )
     
     await server.start()

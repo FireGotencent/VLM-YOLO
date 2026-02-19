@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QGroupBox, QTextEdit
 )
 
+from src.utils.config import get_config
 from src.utils.logger import get_logger
 
 logger = get_logger()
@@ -74,8 +75,19 @@ class ControlPanel(QWidget):
         provider_label = QLabel("提供商:")
         provider_label.setStyleSheet("color: #a0a0a0;")
         self.provider_combo = QComboBox()
-        self.provider_combo.addItems(["ollama", "openai", "claude", "gemini"])
+        providers = ["ollama", "openai", "claude", "gemini"]
+        self.provider_combo.addItems(providers)
         self.provider_combo.setStyleSheet(self._get_combo_style())
+
+        # 初始化默认 provider（避免 UI 与 config 不一致）
+        try:
+            current_provider = get_config().llm.provider
+            idx = self.provider_combo.findText(current_provider)
+            if idx >= 0:
+                self.provider_combo.setCurrentIndex(idx)
+        except Exception:
+            pass
+
         self.provider_combo.currentTextChanged.connect(self._on_provider_changed)
         
         llm_layout.addWidget(provider_label)

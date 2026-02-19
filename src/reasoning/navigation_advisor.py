@@ -71,7 +71,8 @@ class NavigationAdvisor:
     def generate_warning(
         self,
         detection: Detection,
-        distance: Optional[float] = None
+        distance: Optional[float] = None,
+        object_name: Optional[str] = None
     ) -> str:
         """
         生成障碍物警告
@@ -84,6 +85,7 @@ class NavigationAdvisor:
             str: 警告信息
         """
         distance = distance or 2.0  # 默认距离
+        object_name = object_name or detection.class_name
         
         # 判断危险等级
         if distance <= self._config.danger_distance:
@@ -94,7 +96,7 @@ class NavigationAdvisor:
             urgency = "提醒"
         
         prompt = build_warning_prompt(
-            object_name=detection.class_name,
+            object_name=object_name,
             position=detection.relative_position,
             distance=distance
         )
@@ -104,7 +106,7 @@ class NavigationAdvisor:
             return f"【{urgency}】{response}"
         except Exception as e:
             logger.error(f"生成警告失败: {e}")
-            return f"【{urgency}】{detection.relative_position}有{detection.class_name}，请注意避让！"
+            return f"【{urgency}】{detection.relative_position}有{object_name}，请注意避让！"
     
     def suggest_path(self, detections: List[Detection]) -> str:
         """

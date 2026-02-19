@@ -155,6 +155,8 @@ class OpenAIProvider(LLMProvider):
     
     def _get_client(self):
         if self._client is None:
+            if not self.api_key:
+                raise ValueError("未设置 OpenAI API Key，请在环境变量 OPENAI_API_KEY（或复制 .env.example 为 .env）中配置。")
             from openai import OpenAI
             self._client = OpenAI(api_key=self.api_key, base_url=self.base_url)
         return self._client

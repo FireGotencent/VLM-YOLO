@@ -58,6 +58,12 @@ conda activate vgllm
 pip install -r requirements.txt
 ```
 
+### OpenAI 配置
+
+- 桌面端配置位置：`config.yaml` → `llm.provider` / `llm.openai.base_url`
+- 服务端配置位置：`server/config.yaml` → `llm.provider` / `llm.model` / `llm.base_url` / `llm.use_llm`
+- API Key 配置位置：复制 `.env.example` 为 `.env`，设置 `OPENAI_API_KEY=...`（不要提交到仓库）
+
 ### 运行程序
 
 ```bash

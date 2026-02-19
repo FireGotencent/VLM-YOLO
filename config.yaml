@@ -56,7 +56,7 @@ detection:
 
 # ---- LLM 配置 ----
 llm:
-  provider: "ollama"        # 提供商: ollama/openai/claude/gemini
+  provider: "openai"        # 提供商: ollama/openai/claude/gemini
   
   # Ollama 本地配置
   ollama:
@@ -65,7 +65,7 @@ llm:
     
   # OpenAI 配置
   openai:
-    base_url: "https://api.openai.com/v1"
+    base_url: "https://api.openai.com/v1"  # 可替换为兼容 OpenAI 的转发地址
     model: "gpt-4o-mini"
     # api_key: 从环境变量 OPENAI_API_KEY 读取
     

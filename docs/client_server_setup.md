@@ -111,7 +111,19 @@ server:
 detection:
   model: "yolo26n.pt" # YOLO 模型
   confidence: 0.5     # 置信度阈值
+  device: "auto"
+
+llm:
+  provider: "openai"
+  model: "gpt-4o-mini"
+  base_url: "https://api.openai.com/v1"
+  use_llm: true
+  min_interval: 2.0   # 服务端 LLM 播报最小间隔（秒）
 ```
+
+OpenAI API Key 设置位置：
+- 复制 `.env.example` 为 `.env`
+- 在 `.env` 中设置 `OPENAI_API_KEY=...`（不要提交到仓库）
 
 ### 客户端配置
 

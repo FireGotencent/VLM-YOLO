@@ -4,6 +4,7 @@ VisionGuide LLM System 的主界面
 """
 
 import time
+import threading
 from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer
@@ -44,6 +45,11 @@ class MainWindow(QMainWindow):
         self._last_time = time.time()
         self._frame_count = 0
         self._last_announcement_time = 0
+        self._last_llm_request_time = 0.0
+        self._llm_request_inflight = False
+        self._llm_lock = threading.Lock()
+        self._last_fallback_text = ""
+        self._last_llm_text = ""
         
         self._setup_ui()
         self._setup_modules()
@@ -276,23 +282,86 @@ class MainWindow(QMainWindow):
         # 语音提醒（每秒最多一次）
         if detections and self.control_panel.voice_enabled and self._voice:
             if current_time - self._last_announcement_time >= self._config.navigation.update_interval:
-                self._announce_obstacles(detections)
+                frame_height, frame_width = frame.shape[:2]
+                self._announce_obstacles(detections, frame_width, frame_height)
                 self._last_announcement_time = current_time
     
-    def _announce_obstacles(self, detections: list):
+    def _estimate_distance(self, detection: Detection, frame_width: int, frame_height: int) -> float:
+        """基于目标框面积的粗略距离估计（米）"""
+        try:
+            frame_area = max(1, int(frame_width) * int(frame_height))
+            ratio = detection.area / frame_area
+        except Exception:
+            return 2.0
+
+        if ratio >= 0.20:
+            return 0.8
+        if ratio >= 0.10:
+            return 1.2
+        if ratio >= 0.05:
+            return 2.0
+        if ratio >= 0.02:
+            return 3.0
+        return 4.0
+
+    def _announce_obstacles(self, detections: list, frame_width: int, frame_height: int):
         """播报障碍物"""
         if not self._voice or not detections:
             return
+
+        # 先给出快速提示（保证实时性）
+        top_det = max(detections, key=lambda x: x.confidence)
+        name_zh = top_det.class_name
+        if self._detector:
+            name_zh = self._detector.get_class_name_zh(top_det.class_name)
+        fallback_text = f"注意{top_det.relative_position}有{name_zh}"
+        if fallback_text and fallback_text != self._last_fallback_text:
+            self._voice.speak(fallback_text)
+            self._last_fallback_text = fallback_text
         
-        if self._advisor:
-            # 使用快速警报
-            alert = self._advisor.quick_alert(detections)
-            if alert:
-                self._voice.speak(alert)
-        else:
-            # 简单播报
-            det = detections[0]
-            self._voice.speak(f"注意{det.relative_position}有{det.class_name}")
+        # 再尝试用 LLM 生成更精炼/更安全的提示（异步，避免阻塞 UI）
+        if not self._advisor:
+            return
+
+        now = time.time()
+        llm_min_interval = max(2.0, float(self._config.navigation.update_interval))
+        if now - self._last_llm_request_time < llm_min_interval:
+            return
+
+        with self._llm_lock:
+            if self._llm_request_inflight:
+                return
+            self._llm_request_inflight = True
+            self._last_llm_request_time = now
+
+        distance = self._estimate_distance(top_det, frame_width, frame_height)
+
+        def worker():
+            start_time = time.time()
+            try:
+                llm_text = self._advisor.generate_warning(
+                    top_det,
+                    distance=distance,
+                    object_name=name_zh
+                )
+            except Exception as e:
+                logger.warning(f"LLM 警告生成失败: {e}")
+                llm_text = ""
+            finally:
+                with self._llm_lock:
+                    self._llm_request_inflight = False
+
+            # 太慢的结果可能已过时，直接丢弃
+            if time.time() - start_time > 3.0:
+                return
+
+            if not llm_text or llm_text == fallback_text or llm_text == self._last_llm_text:
+                return
+
+            self._last_llm_text = llm_text
+            self._voice.speak(llm_text)
+
+        threading.Thread(target=worker, daemon=True).start()
     
     def closeEvent(self, event):
         """窗口关闭事件"""
