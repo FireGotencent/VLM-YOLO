@@ -70,6 +70,40 @@ pip install -r requirements.txt
 python main.py
 ```
 
+### 网页版客户端（免 APK 联调）
+
+> 适用于快速迭代移动端逻辑，不需要每次重新打包安装 APK；支持安装为 PWA。
+
+1. 启动服务端（接收视频帧并返回检测结果）：
+
+```bash
+python -m server.websocket_server
+```
+
+2. 启动静态文件服务（在项目根目录执行）：
+
+```bash
+python -m http.server 8081 --directory mobile
+```
+
+3. 浏览器打开：
+
+```text
+http://100.111.15.26:8081/web_client.html?ws=ws%3A%2F%2F100.111.15.26%3A8765
+
+```
+
+4. 页面中连接 `ws://127.0.0.1:8765`，开启摄像头后即可联调。
+
+5. 安装为 PWA（可选）：
+- 在页面点击“安装到主屏幕”
+- 或使用浏览器菜单“添加到主屏幕/安装应用”
+
+说明：
+- 手机浏览器通常要求 `HTTPS` 才允许摄像头；本地电脑调试可直接使用 `localhost`。
+- 若页面是 `https`，WebSocket 也应使用 `wss`。
+- PWA 资源文件：`mobile/manifest.webmanifest`、`mobile/sw.js`、`mobile/icons/`
+
 ## 目录结构
 
 ```

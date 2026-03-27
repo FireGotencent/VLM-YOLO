@@ -52,6 +52,33 @@ python main.py
 
 输入服务器的 Tailscale IP，点击"连接"。
 
+### 3B. 启动客户端 (网页版，推荐联调)
+
+```bash
+# 在项目根目录启动静态服务
+cd d:\VisionGuide_LLM_System
+python -m http.server 8081 --directory mobile
+```
+
+浏览器访问：
+
+```text
+http://127.0.0.1:8081/web_client.html
+```
+
+页面内填写并连接 WebSocket 地址，例如：
+- 本机联调：`ws://127.0.0.1:8765`
+- 局域网/Tailscale：`ws://<服务器IP>:8765`
+
+安装为 PWA（可选）：
+- 点击页面顶部“安装到主屏幕”
+- 或在浏览器菜单中选择“添加到主屏幕/安装应用”
+
+说明：
+- 网页版可直接调试前端交互和 WebSocket 协议，不需要反复打包 APK。
+- 手机浏览器通常要求 `HTTPS` 才能启用摄像头；若页面使用 `https`，请使用 `wss`。
+- PWA 文件位于：`mobile/manifest.webmanifest`、`mobile/sw.js`、`mobile/icons/`
+
 ### 4. 测试通信
 
 ```bash

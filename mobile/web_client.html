@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b0f14" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+  <title>VisionGuide Web Client</title>
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --card: #151b24;
+      --text: #e8edf3;
+      --muted: #9aa7b5;
+      --ok: #31c48d;
+      --warn: #f5c451;
+      --err: #ef5350;
+      --accent: #4aa3ff;
+      --border: #263141;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+      background: radial-gradient(circle at top right, #1d2a3d 0%, var(--bg) 35%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .wrap {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 20px;
+      display: grid;
+      gap: 14px;
+    }
+    .card {
+      background: linear-gradient(180deg, #1a2230 0%, var(--card) 100%);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+    }
+    h1 {
+      margin: 0 0 6px 0;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+    .tip {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 10px;
+      align-items: center;
+    }
+    .row > * { flex: 1; min-width: 170px; }
+    label {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 6px;
+    }
+    input[type="text"], input[type="number"] {
+      width: 100%;
+      border: 1px solid var(--border);
+      background: #0f1520;
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 14px;
+    }
+    button {
+      width: 100%;
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 12px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      color: #04111f;
+      background: var(--accent);
+    }
+    button.install {
+      color: var(--text);
+      background: #0f1520;
+      border: 1px solid var(--border);
+    }
+    button.secondary { background: #7a8aa1; }
+    button.warn { background: var(--warn); }
+    button[disabled] {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--muted);
+      background: #0f1520;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #8793a4;
+    }
+    .dot.ok { background: var(--ok); }
+    .dot.warn { background: var(--warn); }
+    .dot.err { background: var(--err); }
+    .grid2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    @media (max-width: 780px) {
+      .grid2 { grid-template-columns: 1fr; }
+    }
+    video {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #000;
+      margin-top: 8px;
+      aspect-ratio: 4 / 3;
+      object-fit: cover;
+    }
+    .inline {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .kv {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    pre {
+      white-space: pre-wrap;
+      margin: 8px 0 0 0;
+      min-height: 86px;
+      padding: 10px;
+      border-radius: 10px;
+      background: #0f1520;
+      border: 1px solid var(--border);
+      color: #d6e4f2;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    .hint {
+      margin-top: 10px;
+      color: var(--warn);
+      font-size: 13px;
+    }
+    .top-actions {
+      margin-top: 10px;
+      align-items: center;
+    }
+    .top-actions button {
+      max-width: 240px;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="card">
+      <h1>VisionGuide Web Client</h1>
+      <p class="tip">PWA 版：浏览器采集摄像头并通过 WebSocket 发送给现有服务端，可直接安装到主屏幕。</p>
+      <div class="row top-actions">
+        <button id="btnInstall" class="install" hidden>安装到主屏幕</button>
+        <p id="installHint" class="tip">PWA 未安装</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="grid2">
+        <div>
+          <label for="wsUrl">WebSocket 地址</label>
+          <input id="wsUrl" type="text" value="ws://127.0.0.1:8765" />
+        </div>
+        <div>
+          <label for="targetFps">发送帧率（FPS）</label>
+          <input id="targetFps" type="number" min="3" max="20" step="1" value="10" />
+        </div>
+      </div>
+      <div class="row">
+        <button id="btnConnect">连接服务端</button>
+        <button id="btnDisconnect" class="secondary" disabled>断开连接</button>
+      </div>
+      <div class="status">
+        <span id="statusDot" class="dot"></span>
+        <span id="statusText">未连接</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row">
+        <button id="btnCamStart" class="warn">开启摄像头</button>
+        <button id="btnCamStop" class="secondary" disabled>关闭摄像头</button>
+      </div>
+      <div class="row">
+        <div>
+          <label for="jpegQuality">JPEG 质量（40-90）</label>
+          <input id="jpegQuality" type="number" min="40" max="90" step="5" value="65" />
+        </div>
+        <div>
+          <label for="maxWidth">视频最大宽度（像素）</label>
+          <input id="maxWidth" type="number" min="320" max="1280" step="10" value="640" />
+        </div>
+      </div>
+      <video id="video" autoplay playsinline muted></video>
+      <p id="secureHint" class="hint" hidden>当前不是安全上下文。手机浏览器通常需要 HTTPS 才能访问摄像头。</p>
+      <canvas id="canvas" hidden></canvas>
+    </section>
+
+    <section class="card">
+      <div class="inline">
+        <input id="ttsEnabled" type="checkbox" checked />
+        <label for="ttsEnabled" style="margin: 0;">语音播报</label>
+      </div>
+      <div class="row">
+        <div>
+          <label for="ttsInterval">播报间隔（秒）</label>
+          <input id="ttsInterval" type="number" min="0.5" max="6" step="0.5" value="2" />
+        </div>
+      </div>
+      <div class="kv">
+        <span id="kCount">检测数量: 0</span>
+        <span id="kLatency">处理耗时: -- ms</span>
+      </div>
+      <pre id="resultText">等待检测结果...</pre>
+    </section>
+  </main>
+
+  <script>
+    const els = {
+      wsUrl: document.getElementById("wsUrl"),
+      targetFps: document.getElementById("targetFps"),
+      btnConnect: document.getElementById("btnConnect"),
+      btnDisconnect: document.getElementById("btnDisconnect"),
+      statusDot: document.getElementById("statusDot"),
+      statusText: document.getElementById("statusText"),
+      btnCamStart: document.getElementById("btnCamStart"),
+      btnCamStop: document.getElementById("btnCamStop"),
+      jpegQuality: document.getElementById("jpegQuality"),
+      maxWidth: document.getElementById("maxWidth"),
+      video: document.getElementById("video"),
+      canvas: document.getElementById("canvas"),
+      secureHint: document.getElementById("secureHint"),
+      ttsEnabled: document.getElementById("ttsEnabled"),
+      ttsInterval: document.getElementById("ttsInterval"),
+      kCount: document.getElementById("kCount"),
+      kLatency: document.getElementById("kLatency"),
+      resultText: document.getElementById("resultText"),
+      btnInstall: document.getElementById("btnInstall"),
+      installHint: document.getElementById("installHint")
+    };
+
+    const state = {
+      ws: null,
+      stream: null,
+      sendTimer: null,
+      lastSpeakAt: 0,
+      deferredInstallPrompt: null
+    };
+
+    function clampNumber(value, min, max, fallback) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return fallback;
+      return Math.min(max, Math.max(min, n));
+    }
+
+    function setStatus(text, level) {
+      els.statusText.textContent = text;
+      els.statusDot.className = "dot";
+      if (level) els.statusDot.classList.add(level);
+    }
+
+    function updateButtons() {
+      const connected = !!(state.ws && state.ws.readyState === WebSocket.OPEN);
+      const cameraOn = !!state.stream;
+      els.btnConnect.disabled = connected;
+      els.btnDisconnect.disabled = !connected;
+      els.btnCamStart.disabled = cameraOn;
+      els.btnCamStop.disabled = !cameraOn;
+    }
+
+    function setResultText(text) {
+      els.resultText.textContent = text;
+    }
+
+    function setInstallHint(text, level) {
+      els.installHint.textContent = text;
+      if (level === "ok") {
+        els.installHint.style.color = "var(--ok)";
+      } else if (level === "warn") {
+        els.installHint.style.color = "var(--warn)";
+      } else if (level === "err") {
+        els.installHint.style.color = "var(--err)";
+      } else {
+        els.installHint.style.color = "var(--muted)";
+      }
+    }
+
+    function isStandaloneMode() {
+      return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+    }
+
+    function updateInstallState() {
+      if (isStandaloneMode()) {
+        els.btnInstall.hidden = true;
+        setInstallHint("已安装（PWA 模式）", "ok");
+        return;
+      }
+
+      if (state.deferredInstallPrompt) {
+        els.btnInstall.hidden = false;
+        setInstallHint("可安装：点击“安装到主屏幕”", "warn");
+        return;
+      }
+
+      els.btnInstall.hidden = true;
+      setInstallHint("可从浏览器菜单添加到主屏幕", "");
+    }
+
+    async function registerServiceWorker() {
+      if (!("serviceWorker" in navigator)) {
+        setInstallHint("当前浏览器不支持 Service Worker", "err");
+        return;
+      }
+
+      if (!window.isSecureContext && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+        setInstallHint("非 HTTPS 环境，PWA 能力受限", "warn");
+        return;
+      }
+
+      try {
+        await navigator.serviceWorker.register("./sw.js");
+      } catch (err) {
+        setInstallHint("Service Worker 注册失败: " + err, "err");
+      }
+    }
+
+    function setupInstallPrompt() {
+      window.addEventListener("beforeinstallprompt", (event) => {
+        event.preventDefault();
+        state.deferredInstallPrompt = event;
+        updateInstallState();
+      });
+
+      window.addEventListener("appinstalled", () => {
+        state.deferredInstallPrompt = null;
+        updateInstallState();
+      });
+
+      els.btnInstall.addEventListener("click", async () => {
+        if (!state.deferredInstallPrompt) {
+          updateInstallState();
+          return;
+        }
+
+        const promptEvent = state.deferredInstallPrompt;
+        promptEvent.prompt();
+        const result = await promptEvent.userChoice;
+        state.deferredInstallPrompt = null;
+
+        if (result.outcome === "accepted") {
+          setInstallHint("安装请求已确认", "ok");
+        } else {
+          setInstallHint("已取消安装，可稍后重试", "warn");
+        }
+        updateInstallState();
+      });
+
+      try {
+        const media = window.matchMedia("(display-mode: standalone)");
+        if (typeof media.addEventListener === "function") {
+          media.addEventListener("change", updateInstallState);
+        }
+      } catch (e) {
+        // ignore
+      }
+
+      updateInstallState();
+    }
+
+    function speak(text) {
+      if (!els.ttsEnabled.checked || !("speechSynthesis" in window) || !text) return;
+
+      const intervalSec = clampNumber(els.ttsInterval.value, 0.5, 6, 2);
+      const now = Date.now();
+      if (now - state.lastSpeakAt < intervalSec * 1000) return;
+
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = "zh-CN";
+      utter.rate = 1;
+      window.speechSynthesis.speak(utter);
+      state.lastSpeakAt = now;
+    }
+
+    function renderResult(payload) {
+      const total = Number(payload.total_count || 0);
+      const processTime = payload.process_time_ms;
+      const objects = Array.isArray(payload.objects) ? payload.objects : [];
+
+      els.kCount.textContent = "检测数量: " + total;
+      els.kLatency.textContent = "处理耗时: " + (Number.isFinite(Number(processTime)) ? Number(processTime).toFixed(1) + " ms" : "-- ms");
+
+      if (total <= 0) {
+        setResultText("前方畅通\n暂无检测到障碍物");
+      } else {
+        const lines = ["检测到 " + total + " 个物体"];
+        for (const obj of objects.slice(0, 6)) {
+          const name = obj.class_zh || obj.class || "未知";
+          const pos = obj.position ? "（" + obj.position + "）" : "";
+          const conf = Number.isFinite(Number(obj.confidence)) ? " " + Math.round(Number(obj.confidence) * 100) + "%" : "";
+          lines.push("• " + name + pos + conf);
+        }
+        if (objects.length > 6) lines.push("... 其余省略");
+        setResultText(lines.join("\n"));
+      }
+
+      if (payload.tts_text) speak(String(payload.tts_text));
+    }
+
+    function startSendLoop() {
+      stopSendLoop();
+      const fps = clampNumber(els.targetFps.value, 3, 20, 10);
+      const intervalMs = Math.round(1000 / fps);
+      state.sendTimer = setInterval(sendFrame, intervalMs);
+    }
+
+    function stopSendLoop() {
+      if (state.sendTimer) {
+        clearInterval(state.sendTimer);
+        state.sendTimer = null;
+      }
+    }
+
+    function sendFrame() {
+      if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
+      if (!state.stream || !els.video.videoWidth || !els.video.videoHeight) return;
+
+      const maxWidth = clampNumber(els.maxWidth.value, 320, 1280, 640);
+      const quality = clampNumber(els.jpegQuality.value, 40, 90, 65) / 100;
+
+      const srcW = els.video.videoWidth;
+      const srcH = els.video.videoHeight;
+      const scale = Math.min(1, maxWidth / srcW);
+      const outW = Math.max(1, Math.round(srcW * scale));
+      const outH = Math.max(1, Math.round(srcH * scale));
+
+      els.canvas.width = outW;
+      els.canvas.height = outH;
+      const ctx = els.canvas.getContext("2d");
+      ctx.drawImage(els.video, 0, 0, outW, outH);
+
+      const dataUrl = els.canvas.toDataURL("image/jpeg", quality);
+      const base64 = dataUrl.split(",")[1];
+      if (!base64) return;
+
+      const payload = {
+        type: "frame",
+        timestamp: Date.now() / 1000,
+        data: base64
+      };
+      state.ws.send(JSON.stringify(payload));
+    }
+
+    function connectWS() {
+      const url = String(els.wsUrl.value || "").trim();
+      if (!/^wss?:\/\//i.test(url)) {
+        setStatus("地址格式错误（需 ws:// 或 wss://）", "err");
+        return;
+      }
+      if (state.ws && state.ws.readyState === WebSocket.OPEN) return;
+
+      setStatus("连接中...", "warn");
+      const ws = new WebSocket(url);
+      state.ws = ws;
+
+      ws.onopen = () => {
+        setStatus("已连接", "ok");
+        updateButtons();
+        if (state.stream) startSendLoop();
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.type === "detection_result") {
+            renderResult(payload);
+          }
+        } catch (err) {
+          setResultText("消息解析失败: " + err);
+        }
+      };
+
+      ws.onerror = () => {
+        setStatus("连接错误", "err");
+      };
+
+      ws.onclose = () => {
+        stopSendLoop();
+        if (state.ws === ws) {
+          state.ws = null;
+        }
+        setStatus("未连接", "");
+        updateButtons();
+      };
+
+      updateButtons();
+    }
+
+    function disconnectWS() {
+      if (!state.ws) return;
+      state.ws.close();
+    }
+
+    async function startCamera() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setStatus("浏览器不支持摄像头 API", "err");
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        });
+
+        state.stream = stream;
+        els.video.srcObject = stream;
+        await els.video.play();
+        updateButtons();
+
+        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+          startSendLoop();
+        }
+      } catch (err) {
+        setStatus("摄像头启动失败", "err");
+        setResultText("摄像头错误: " + err);
+      }
+    }
+
+    function stopCamera() {
+      stopSendLoop();
+      if (state.stream) {
+        for (const track of state.stream.getTracks()) {
+          track.stop();
+        }
+      }
+      state.stream = null;
+      els.video.srcObject = null;
+      updateButtons();
+    }
+
+    function init() {
+      const params = new URLSearchParams(window.location.search);
+      const ws = params.get("ws");
+      if (ws) els.wsUrl.value = ws;
+
+      const insecure = !window.isSecureContext &&
+        window.location.hostname !== "localhost" &&
+        window.location.hostname !== "127.0.0.1";
+      if (insecure) {
+        els.secureHint.hidden = false;
+      }
+
+      els.btnConnect.addEventListener("click", connectWS);
+      els.btnDisconnect.addEventListener("click", disconnectWS);
+      els.btnCamStart.addEventListener("click", startCamera);
+      els.btnCamStop.addEventListener("click", stopCamera);
+
+      els.targetFps.addEventListener("change", () => {
+        if (state.stream && state.ws && state.ws.readyState === WebSocket.OPEN) {
+          startSendLoop();
+        }
+      });
+
+      registerServiceWorker();
+      setupInstallPrompt();
+      updateButtons();
+      setStatus("未连接", "");
+    }
+
+    window.addEventListener("beforeunload", () => {
+      try { disconnectWS(); } catch (e) {}
+      try { stopCamera(); } catch (e) {}
+    });
+
+    init();
+  </script>
+</body>
+</html>
