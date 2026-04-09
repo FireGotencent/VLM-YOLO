@@ -4,7 +4,8 @@
       "Bash(git -C /d/VisionGuide_LLM_System log --oneline -10)",
       "Bash(git -C /d/VisionGuide_LLM_System show e45af7a --stat)",
       "Bash(git -C /d/VisionGuide_LLM_System log --all --oneline)",
-      "Bash(git -C /d/VisionGuide_LLM_System status)"
+      "Bash(git -C /d/VisionGuide_LLM_System status)",
+      "Bash(del:*)"
     ]
   }
 }

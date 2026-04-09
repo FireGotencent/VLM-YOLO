@@ -3,11 +3,11 @@
 ## 系统架构
 
 ```
-📱 手机端 (Kivy App)              🖥️ 电脑端 (Python Server)
+📱 手机浏览器 (Web PWA)             🖥️ 电脑端 (Python Server)
 ┌────────────────────┐            ┌────────────────────┐
 │ 摄像头采集          │            │ WebSocket Server   │
 │ ↓                  │  ──────►   │ ↓                  │
-│ JPEG 压缩          │  Tailscale  │ YOLO Detection     │
+│ JPEG 压缩          │   wss://   │ YOLO Detection     │
 │ ↓                  │            │ ↓                  │
 │ WebSocket 发送     │            │ 生成导航建议        │
 │                    │  ◄──────   │ ↓                  │
@@ -19,158 +19,90 @@
 
 ## 快速开始
 
-### 1. 启动服务端 (电脑)
+### 1. 启动服务端（电脑）
 
 ```bash
-# 激活环境
 conda activate vgllm
-
-# 启动服务
-cd d:\VisionGuide_LLM_System
-python -m server.websocket_server
-
-# 或者
-python server/websocket_server.py
+cd D:\VisionGuide_LLM_System
+python server/main.py
 ```
 
-服务端将在 `ws://0.0.0.0:8765` 监听。
+服务端在 `wss://0.0.0.0:8765` 监听（SSL 已启用）。
 
-### 2. 获取电脑的 Tailscale IP
+### 2. 启动 HTTPS 静态服务（电脑，另开终端）
 
 ```bash
-tailscale ip -4
-# 例如: 100.98.158.52
+python mobile/start_https_server.py
 ```
 
-### 3. 启动客户端 (桌面测试)
+脚本自动生成自签名证书，打印可访问地址：
 
-```bash
-# 桌面模式运行 Kivy App
-cd mobile
-python main.py
+```
+HTTPS 服务器已启动
+  局域网访问:  https://192.168.1.5:8443
+  Tailscale:   https://100.111.x.x:8443
 ```
 
-输入服务器的 Tailscale IP，点击"连接"。
+### 3. 手机浏览器访问
 
-### 3B. 启动客户端 (网页版，推荐联调)
-
-```bash
-# 在项目根目录启动静态服务
-cd d:\VisionGuide_LLM_System
-python -m http.server 8081 --directory mobile
-```
-
-浏览器访问：
-
-```text
-http://127.0.0.1:8081/web_client.html
-```
-
-页面内填写并连接 WebSocket 地址，例如：
-- 本机联调：`ws://127.0.0.1:8765`
-- 局域网/Tailscale：`ws://<服务器IP>:8765`
-
-安装为 PWA（可选）：
-- 点击页面顶部“安装到主屏幕”
-- 或在浏览器菜单中选择“添加到主屏幕/安装应用”
-
-说明：
-- 网页版可直接调试前端交互和 WebSocket 协议，不需要反复打包 APK。
-- 手机浏览器通常要求 `HTTPS` 才能启用摄像头；若页面使用 `https`，请使用 `wss`。
-- PWA 文件位于：`mobile/manifest.webmanifest`、`mobile/sw.js`、`mobile/icons/`
+1. 打开上面输出的 HTTPS 地址
+2. 首次访问提示证书不受信任 → 点「高级」→「继续前往」
+3. 填写 WebSocket 地址（格式 `wss://<同一IP>:8765`）
+4. 点「连接服务端」→「开启摄像头」
 
 ### 4. 测试通信
 
 ```bash
-# 发送测试帧到服务端
-python mobile/test_client.py ws://100.98.158.52:8765
+python mobile/test_client.py wss://127.0.0.1:8765
 ```
 
 ---
 
-## Android APK 打包
+## 跨网络访问（Tailscale）
 
-### 环境准备 (Linux/WSL)
+不同 WiFi 或 4G 场景下使用 Tailscale 穿透，详见 [tailscale_setup.md](./tailscale_setup.md)。
 
-Buildozer 需要 Linux 环境：
-
-```bash
-# 安装依赖
-sudo apt install -y python3-pip python3-setuptools git zip unzip openjdk-17-jdk
-
-# 安装 buildozer
-pip install buildozer
-
-# 安装 Android SDK 依赖
-sudo apt install -y autoconf automake libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev cmake
-```
-
-### 打包 APK
-
-```bash
-cd mobile
-
-# 首次打包 (会下载 Android SDK/NDK，需要较长时间)
-buildozer android debug
-
-# APK 位置
-ls bin/visionguide-0.1-debug.apk
-```
-
-### 安装到手机
-
-```bash
-# 通过 ADB 安装
-adb install bin/visionguide-0.1-debug.apk
-```
+连接后将 IP 替换为 Tailscale IP（100.x.x.x），其余步骤不变。
 
 ---
 
 ## 配置说明
 
-### 服务端配置 (`server/config.yaml`)
+### 服务端配置（`server/config.yaml`）
 
 ```yaml
 server:
-  host: "0.0.0.0"     # 监听所有接口
-  port: 8765          # WebSocket 端口
+  host: "0.0.0.0"
+  port: 8765
 
 detection:
-  model: "yolo26n.pt" # YOLO 模型
-  confidence: 0.5     # 置信度阈值
-  device: "auto"
+  model: "yolo26n.pt"
+  confidence: 0.5
 
 llm:
   provider: "openai"
   model: "gpt-4o-mini"
-  base_url: "https://api.openai.com/v1"
   use_llm: true
-  min_interval: 2.0   # 服务端 LLM 播报最小间隔（秒）
+  min_interval: 2.0
+
+ssl:
+  certfile: "mobile/_dev_cert.pem"
+  keyfile:  "mobile/_dev_key.pem"
 ```
 
-OpenAI API Key 设置位置：
-- 复制 `.env.example` 为 `.env`
-- 在 `.env` 中设置 `OPENAI_API_KEY=...`（不要提交到仓库）
-
-### 客户端配置
-
-在 App 界面输入：
-- **服务器 IP**: 电脑的 Tailscale IP (如 `100.98.158.52`)
-- **端口**: `8765`
+API Key 配置：复制 `.env.example` 为 `.env`，填入 `OPENAI_API_KEY`。
 
 ---
 
 ## 故障排除
 
-### 连接失败
-1. 检查服务端是否启动
-2. 检查 Tailscale 是否连接
-3. 测试: `ping <服务器IP>`
+**连接失败**
+1. 检查服务端是否启动（终端有无报错）
+2. 地址用 `wss://` 而非 `ws://`
+3. 防火墙放行 8765 端口
 
-### 视频卡顿
-1. 降低视频质量
-2. 检查网络延迟: `tailscale ping <手机IP>`
+**摄像头不可用**
+→ 页面必须通过 HTTPS 访问，HTTP 下 `navigator.mediaDevices` 不可用。
 
-### TTS 不播报
-1. 检查手机音量
-2. 确认 plyer 安装正确
+**视频卡顿**
+→ 在 Web 客户端降低 FPS 或 JPEG 质量；检查网络延迟。
