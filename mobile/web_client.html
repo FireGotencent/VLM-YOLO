@@ -191,7 +191,7 @@
       <div class="grid2">
         <div>
           <label for="wsUrl">WebSocket 地址</label>
-          <input id="wsUrl" type="text" value="ws://127.0.0.1:8765" />
+          <input id="wsUrl" type="text" value="wss://127.0.0.1:8765" />
         </div>
         <div>
           <label for="targetFps">发送帧率（FPS）</label>
@@ -224,7 +224,7 @@
         </div>
       </div>
       <video id="video" autoplay playsinline muted></video>
-      <p id="secureHint" class="hint" hidden>当前不是安全上下文。手机浏览器通常需要 HTTPS 才能访问摄像头。</p>
+      <p id="secureHint" class="hint" hidden>当前为 HTTP 非安全环境，手机浏览器拒绝摄像头访问。请改用 HTTPS 服务器：<br>运行 <code>python start_https_server.py</code>，然后访问 <code>https://&lt;电脑IP&gt;:8443</code>，浏览器提示"不安全"时点击"高级"→"继续前往"即可。</p>
       <canvas id="canvas" hidden></canvas>
     </section>
 
@@ -534,8 +534,24 @@
     }
 
     async function startCamera() {
+      const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+      if (!window.isSecureContext && !isLocal) {
+        els.secureHint.hidden = false;
+        setStatus("需要 HTTPS 才能访问摄像头", "err");
+        setResultText(
+          "摄像头启动失败\n\n" +
+          "手机浏览器必须通过 HTTPS 访问才能使用摄像头。\n\n" +
+          "解决方法：\n" +
+          "1. 在电脑上运行: python mobile/start_https_server.py\n" +
+          "2. 手机浏览器访问: https://电脑局域网IP:8443\n" +
+          "3. 点击「高级」→「继续前往」绕过证书警告"
+        );
+        return;
+      }
+
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         setStatus("浏览器不支持摄像头 API", "err");
+        setResultText("摄像头启动失败\n\n此浏览器不支持 getUserMedia API\n请使用 Chrome 或 Safari");
         return;
       }
 

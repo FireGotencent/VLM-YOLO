@@ -25,5 +25,10 @@ llm:
   min_interval: 2.0         # 服务端 LLM 播报最小间隔（秒）
   # api_key: 从环境变量 OPENAI_API_KEY 读取（建议写入 .env，不要提交）
 
+ssl:
+  # 与 HTTPS 服务器共用同一套证书（先运行 python mobile/start_https_server.py 生成）
+  certfile: "mobile/_dev_cert.pem"
+  keyfile:  "mobile/_dev_key.pem"
+
 logging:
   level: "INFO"

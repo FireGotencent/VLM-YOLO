@@ -52,7 +52,7 @@ class ServerResponse:
 
 class VisionGuideServer:
     """视觉导航服务器"""
-    
+
     def __init__(
         self,
         host: str = "0.0.0.0",
@@ -66,7 +66,9 @@ class VisionGuideServer:
         llm_provider: str = "ollama",
         llm_model: str = "qwen2.5:7b",
         llm_base_url: Optional[str] = None,
-        llm_min_interval: float = 2.0
+        llm_min_interval: float = 2.0,
+        ssl_certfile: Optional[str] = None,
+        ssl_keyfile: Optional[str] = None,
     ):
         self.host = host
         self.port = port
@@ -78,6 +80,8 @@ class VisionGuideServer:
         self._llm_base_url = llm_base_url
         self._llm_min_interval = max(0.0, float(llm_min_interval))
         self._last_llm_time = 0.0
+        self._ssl_certfile = ssl_certfile
+        self._ssl_keyfile = ssl_keyfile
         
         # 客户端连接
         self._clients: Set[WebSocketServerProtocol] = set()
@@ -126,16 +130,26 @@ class VisionGuideServer:
             except Exception as e:
                 logger.warning(f"LLM 初始化失败: {e}")
         
-        # 启动 WebSocket 服务
-        logger.info(f"启动 WebSocket 服务: ws://{self.host}:{self.port}")
-        
+        # 构建 SSL 上下文（可选）
+        ssl_context = None
+        scheme = "ws"
+        if self._ssl_certfile and self._ssl_keyfile:
+            import ssl as _ssl
+            ssl_context = _ssl.SSLContext(_ssl.PROTOCOL_TLS_SERVER)
+            ssl_context.minimum_version = _ssl.TLSVersion.TLSv1_2
+            ssl_context.load_cert_chain(self._ssl_certfile, self._ssl_keyfile)
+            scheme = "wss"
+
+        logger.info(f"启动 WebSocket 服务: {scheme}://{self.host}:{self.port}")
+
         async with websockets.serve(
             self._handle_client,
             self.host,
             self.port,
-            max_size=self._ws_max_size
+            max_size=self._ws_max_size,
+            ssl=ssl_context,
         ):
-            logger.info("服务器已启动，等待客户端连接...")
+            logger.info(f"服务器已启动（{'TLS 加密' if ssl_context else '无加密'}），等待客户端连接...")
             await asyncio.Future()  # 永久运行
     
     async def _handle_client(self, websocket: WebSocketServerProtocol):
@@ -342,6 +356,15 @@ async def main():
     processing_cfg = config.get("processing", {})
     detection_cfg = config.get("detection", {})
     llm_cfg = config.get("llm", {})
+    ssl_cfg = config.get("ssl", {})
+
+    # 解析证书路径（相对路径基于项目根目录）
+    project_root = Path(__file__).parent.parent
+    def resolve(p: Optional[str]) -> Optional[str]:
+        if not p:
+            return None
+        path = Path(p)
+        return str(path if path.is_absolute() else project_root / path)
 
     server = VisionGuideServer(
         host=server_cfg.get("host", "0.0.0.0"),
@@ -356,6 +379,8 @@ async def main():
         llm_model=str(llm_cfg.get("model", "qwen2.5:7b")),
         llm_base_url=llm_cfg.get("base_url"),
         llm_min_interval=float(llm_cfg.get("min_interval", 2.0)),
+        ssl_certfile=resolve(ssl_cfg.get("certfile")),
+        ssl_keyfile=resolve(ssl_cfg.get("keyfile")),
     )
     
     await server.start()
