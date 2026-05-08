@@ -77,6 +77,11 @@ class LLMEngine:
                 "model": config.llm.gemini.model,
                 "api_key": config.llm.gemini.api_key
             }
+        elif provider_name == "gemma4":
+            return {
+                "model": config.llm.gemma4.model,
+                "api_key": config.llm.gemma4.api_key
+            }
         else:
             return {}
     

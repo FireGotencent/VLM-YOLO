@@ -56,28 +56,35 @@ detection:
 
 # ---- LLM 配置 ----
 llm:
-  provider: "openai"        # 提供商: ollama/openai/claude/gemini
-  
+  provider: "gemma4"        # 提供商: ollama/openai/claude/gemini/gemma4
+
   # Ollama 本地配置
   ollama:
     base_url: "http://localhost:11434"
     model: "qwen2.5:7b"     # 使用的模型
-    
+
   # OpenAI 配置
   openai:
     base_url: "https://api.openai.com/v1"  # 可替换为兼容 OpenAI 的转发地址
     model: "gpt-4o-mini"
     # api_key: 从环境变量 OPENAI_API_KEY 读取
-    
+
   # Claude 配置
   claude:
     model: "claude-3-haiku-20240307"
     # api_key: 从环境变量 ANTHROPIC_API_KEY 读取
-    
+
   # Gemini 配置
   gemini:
-    model: "gemini-1.5-flash"
+    model: "gemini-2.5-flash"
     # api_key: 从环境变量 GOOGLE_API_KEY 读取
+
+  # Gemma 4 配置（通过 Gemini API 托管，支持多模态）
+  # gemma-4-26b-a4b-it: MoE架构，26B总参数/4B激活，性价比高
+  # gemma-4-31b-it:     Dense架构，31B参数，推理能力更强
+  gemma4:
+    model: "gemma-4-26b-a4b-it"
+    # api_key: 从环境变量 GOOGLE_API_KEY 读取（与 gemini 共用）
   
   # 通用参数
   temperature: 0.7

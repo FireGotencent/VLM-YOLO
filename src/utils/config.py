@@ -56,7 +56,13 @@ class ClaudeConfig(BaseModel):
 
 class GeminiConfig(BaseModel):
     """Gemini 配置"""
-    model: str = "gemini-1.5-flash"
+    model: str = "gemini-2.5-flash"
+    api_key: Optional[str] = None
+
+
+class Gemma4Config(BaseModel):
+    """Gemma 4 配置（与 Gemini 共用 GOOGLE_API_KEY）"""
+    model: str = "gemma-4-26b-a4b-it"
     api_key: Optional[str] = None
 
 
@@ -67,6 +73,7 @@ class LLMConfig(BaseModel):
     openai: OpenAIConfig = OpenAIConfig()
     claude: ClaudeConfig = ClaudeConfig()
     gemini: GeminiConfig = GeminiConfig()
+    gemma4: Gemma4Config = Gemma4Config()
     temperature: float = 0.7
     max_tokens: int = 512
     timeout: int = 30
@@ -154,6 +161,7 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
     _config.llm.openai.api_key = os.getenv("OPENAI_API_KEY")
     _config.llm.claude.api_key = os.getenv("ANTHROPIC_API_KEY")
     _config.llm.gemini.api_key = os.getenv("GOOGLE_API_KEY")
+    _config.llm.gemma4.api_key = os.getenv("GOOGLE_API_KEY")
     
     return _config
 

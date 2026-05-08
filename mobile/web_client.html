@@ -352,6 +352,8 @@
       try {
         await navigator.serviceWorker.register("./sw.js");
       } catch (err) {
+        // SSL 证书不受信任时静默跳过——SW 仅用于离线缓存，不影响核心功能
+        if (err.name === "SecurityError") return;
         setInstallHint("Service Worker 注册失败: " + err, "err");
       }
     }
@@ -594,7 +596,16 @@
     function init() {
       const params = new URLSearchParams(window.location.search);
       const ws = params.get("ws");
-      if (ws) els.wsUrl.value = ws;
+      if (ws) {
+        els.wsUrl.value = ws;
+      } else {
+        // 自动用当前页面的 IP/域名，避免手机上 127.0.0.1 指向自身
+        const h = window.location.hostname;
+        if (h !== "localhost" && h !== "127.0.0.1") {
+          const proto = window.isSecureContext ? "wss" : "ws";
+          els.wsUrl.value = `${proto}://${h}:8765`;
+        }
+      }
 
       const insecure = !window.isSecureContext &&
         window.location.hostname !== "localhost" &&

@@ -325,24 +325,41 @@ class ClaudeProvider(LLMProvider):
 
 
 class GeminiProvider(LLMProvider):
-    """Google Gemini 提供商"""
-    
+    """Google Gemini 提供商（google-genai 新版 SDK）"""
+
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "gemini-1.5-flash"
+        model: str = "gemini-2.5-flash"
     ):
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         self.model = model
         self._client = None
-    
+
     def _get_client(self):
         if self._client is None:
-            import google.generativeai as genai
-            genai.configure(api_key=self.api_key)
-            self._client = genai.GenerativeModel(self.model)
+            if not self.api_key:
+                raise ValueError("未设置 Google API Key，请在 .env 中配置 GOOGLE_API_KEY。")
+            from google import genai
+            self._client = genai.Client(api_key=self.api_key)
         return self._client
-    
+
+    def _build_contents(self, messages: List[Dict[str, Any]]):
+        """将统一格式消息转换为 Gemini contents 列表，返回 (system_instruction, contents)"""
+        from google.genai import types
+        system_instruction = None
+        contents = []
+        for msg in messages:
+            role = msg["role"]
+            content = msg["content"]
+            if role == "system":
+                system_instruction = content
+            elif role == "user":
+                contents.append(types.Content(role="user", parts=[types.Part(text=content)]))
+            elif role == "assistant":
+                contents.append(types.Content(role="model", parts=[types.Part(text=content)]))
+        return system_instruction, contents
+
     def chat(
         self,
         messages: List[Dict[str, str]],
@@ -351,27 +368,24 @@ class GeminiProvider(LLMProvider):
         **kwargs
     ) -> str:
         try:
+            from google.genai import types
             client = self._get_client()
-            
-            # 转换消息格式
-            history = []
-            for msg in messages[:-1]:
-                role = "user" if msg["role"] == "user" else "model"
-                history.append({"role": role, "parts": [msg["content"]]})
-            
-            chat = client.start_chat(history=history)
-            response = chat.send_message(
-                messages[-1]["content"],
-                generation_config={
-                    "temperature": temperature,
-                    "max_output_tokens": max_tokens
-                }
+            system_instruction, contents = self._build_contents(messages)
+            config = types.GenerateContentConfig(
+                temperature=temperature,
+                max_output_tokens=max_tokens,
+                system_instruction=system_instruction,
+            )
+            response = client.models.generate_content(
+                model=self.model,
+                contents=contents,
+                config=config,
             )
             return response.text
         except Exception as e:
             logger.error(f"Gemini 调用失败: {e}")
             raise
-    
+
     def chat_stream(
         self,
         messages: List[Dict[str, str]],
@@ -380,28 +394,84 @@ class GeminiProvider(LLMProvider):
         **kwargs
     ) -> Generator[str, None, None]:
         try:
+            from google.genai import types
             client = self._get_client()
-            
-            history = []
-            for msg in messages[:-1]:
-                role = "user" if msg["role"] == "user" else "model"
-                history.append({"role": role, "parts": [msg["content"]]})
-            
-            chat = client.start_chat(history=history)
-            response = chat.send_message(
-                messages[-1]["content"],
-                generation_config={
-                    "temperature": temperature,
-                    "max_output_tokens": max_tokens
-                },
-                stream=True
+            system_instruction, contents = self._build_contents(messages)
+            config = types.GenerateContentConfig(
+                temperature=temperature,
+                max_output_tokens=max_tokens,
+                system_instruction=system_instruction,
             )
-            for chunk in response:
+            for chunk in client.models.generate_content_stream(
+                model=self.model,
+                contents=contents,
+                config=config,
+            ):
                 if chunk.text:
                     yield chunk.text
         except Exception as e:
             logger.error(f"Gemini 流式调用失败: {e}")
             raise
+
+    def chat_with_vision(
+        self,
+        messages: List[Dict[str, Any]],
+        images: List[str],
+        temperature: float = 0.7,
+        max_tokens: int = 512,
+        **kwargs
+    ) -> str:
+        """多模态对话，将图像附加到最后一条 user 消息"""
+        try:
+            from google.genai import types
+            client = self._get_client()
+            system_instruction, contents = self._build_contents(messages)
+
+            # 把图像注入最后一条 user Content
+            if images and contents:
+                last_user_idx = next(
+                    (i for i in range(len(contents) - 1, -1, -1)
+                     if contents[i].role == "user"),
+                    None
+                )
+                if last_user_idx is not None:
+                    extra_parts = []
+                    for img_path in images:
+                        with open(img_path, "rb") as f:
+                            img_bytes = f.read()
+                        extra_parts.append(
+                            types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")
+                        )
+                    contents[last_user_idx] = types.Content(
+                        role="user",
+                        parts=list(contents[last_user_idx].parts) + extra_parts,
+                    )
+
+            config = types.GenerateContentConfig(
+                temperature=temperature,
+                max_output_tokens=max_tokens,
+                system_instruction=system_instruction,
+            )
+            response = client.models.generate_content(
+                model=self.model,
+                contents=contents,
+                config=config,
+            )
+            return response.text
+        except Exception as e:
+            logger.error(f"Gemini Vision 调用失败: {e}")
+            raise
+
+
+class Gemma4Provider(GeminiProvider):
+    """Google Gemma 4 提供商（通过 Gemini API 调用，支持多模态）"""
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: str = "gemma-4-26b-a4b-it"
+    ):
+        super().__init__(api_key=api_key, model=model)
 
 
 # 提供商注册表
@@ -410,6 +480,7 @@ _PROVIDERS = {
     "openai": OpenAIProvider,
     "claude": ClaudeProvider,
     "gemini": GeminiProvider,
+    "gemma4": Gemma4Provider,
 }
 
 

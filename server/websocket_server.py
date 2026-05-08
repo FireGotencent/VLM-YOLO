@@ -6,8 +6,11 @@ WebSocket 服务端
 import asyncio
 import base64
 import json
+import sys
 import time
 from dataclasses import dataclass, asdict
+from http import HTTPStatus
+from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 import numpy as np
@@ -16,8 +19,46 @@ import websockets
 import yaml
 from websockets.server import WebSocketServerProtocol
 
-import sys
-from pathlib import Path
+# 当手机浏览器直接访问 wss 端口时返回此页，引导用户接受证书
+_CERT_TRUST_HTML = (
+    "<!DOCTYPE html>"
+    "<html><head><meta charset=\"utf-8\">"
+    "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+    "<title>VisionGuide WebSocket</title>"
+    "<style>body{font:16px/1.6 sans-serif;max-width:420px;margin:60px auto;padding:0 20px;text-align:center}"
+    ".ok{color:#0a0;font-size:2em;margin:16px 0}</style>"
+    "</head><body>"
+    "<div class=\"ok\">&#10003;</div>"
+    "<h2>WebSocket 端口证书已接受</h2>"
+    "<p>此页面仅用于让浏览器信任 WebSocket 端口的 SSL 证书。</p>"
+    "<p>请<strong>返回主页面</strong>点击「连接服务端」。</p>"
+    "</body></html>"
+).encode("utf-8")
+
+
+async def _ws_process_request(connection, request):
+    """非 WebSocket 升级请求时返回证书接受引导页（兼容 websockets >= 13 asyncio API）"""
+    upgrade = request.headers.get("Upgrade", "")
+    if upgrade.lower() != "websocket":
+        import logging
+        logging.getLogger("websockets").info(
+            f"HTTP GET {request.path} — 返回证书接受页（非 WebSocket 请求）"
+        )
+        try:
+            from websockets.http11 import Response
+            from websockets.datastructures import Headers
+            headers = Headers([
+                ("Content-Type", "text/html; charset=utf-8"),
+                ("Content-Length", str(len(_CERT_TRUST_HTML))),
+            ])
+            return Response(HTTPStatus.OK, "OK", headers, _CERT_TRUST_HTML)
+        except Exception:
+            # 极老版本降级：返回元组格式
+            return (HTTPStatus.OK,
+                    [("Content-Type", "text/html; charset=utf-8"),
+                     ("Content-Length", str(len(_CERT_TRUST_HTML)))],
+                    _CERT_TRUST_HTML)
+    return None
 
 # 添加项目根目录到路径
 project_root = Path(__file__).parent.parent
@@ -130,6 +171,14 @@ class VisionGuideServer:
             except Exception as e:
                 logger.warning(f"LLM 初始化失败: {e}")
         
+        # 优先使用 Tailscale 受信任证书（与 HTTPS 服务器保持一致）
+        ts_cert = project_root / "mobile" / "_ts_cert.pem"
+        ts_key  = project_root / "mobile" / "_ts_key.pem"
+        if ts_cert.exists() and ts_key.exists():
+            logger.info(f"检测到 Tailscale 证书，自动使用: {ts_cert}")
+            self._ssl_certfile = str(ts_cert)
+            self._ssl_keyfile  = str(ts_key)
+
         # 构建 SSL 上下文（可选）
         ssl_context = None
         scheme = "ws"
@@ -139,6 +188,7 @@ class VisionGuideServer:
             ssl_context.minimum_version = _ssl.TLSVersion.TLSv1_2
             ssl_context.load_cert_chain(self._ssl_certfile, self._ssl_keyfile)
             scheme = "wss"
+            logger.info(f"SSL 证书: {self._ssl_certfile}")
 
         logger.info(f"启动 WebSocket 服务: {scheme}://{self.host}:{self.port}")
 
@@ -148,6 +198,7 @@ class VisionGuideServer:
             self.port,
             max_size=self._ws_max_size,
             ssl=ssl_context,
+            process_request=_ws_process_request,
         ):
             logger.info(f"服务器已启动（{'TLS 加密' if ssl_context else '无加密'}），等待客户端连接...")
             await asyncio.Future()  # 永久运行

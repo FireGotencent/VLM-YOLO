@@ -11,7 +11,7 @@ pillow>=10.0.0              # 图像工具
 ollama>=0.1.0               # Ollama 本地部署
 openai>=1.0.0               # OpenAI API
 anthropic>=0.18.0           # Claude API
-google-generativeai>=0.4.0  # Gemini API
+google-genai>=1.0.0         # Gemini / Gemma API (新版 SDK)
 
 # ---- 语音交互 ----
 pyttsx3>=2.90               # 语音合成 (TTS)

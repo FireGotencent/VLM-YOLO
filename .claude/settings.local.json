@@ -5,7 +5,10 @@
       "Bash(git -C /d/VisionGuide_LLM_System show e45af7a --stat)",
       "Bash(git -C /d/VisionGuide_LLM_System log --all --oneline)",
       "Bash(git -C /d/VisionGuide_LLM_System status)",
-      "Bash(del:*)"
+      "Bash(del:*)",
+      "Bash(git remote *)",
+      "Bash(git push *)",
+      "Bash(npx skills *)"
     ]
   }
 }
