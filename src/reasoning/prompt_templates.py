@@ -46,6 +46,14 @@ PATH_SUGGESTION_TEMPLATE = """当前路况：
 请分析当前路况，给出最安全的行走方向建议。"""
 
 
+# 多模态视觉导航提示词（同时发送图像和 YOLO 文字描述）
+VISION_NAV_TEMPLATE = """我是视障人士，正在用摄像头导航。
+YOLO 检测结果（供参考，以图像为准）：
+{detections}
+
+请结合图像，用不超过 25 个字给出导航建议，直接说行动指令，例如：「前方有行人，请右转绕行」。"""
+
+
 # 检测结果格式化
 def format_detections(detections: list) -> str:
     """

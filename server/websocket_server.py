@@ -66,6 +66,7 @@ sys.path.insert(0, str(project_root))
 
 from src.detection.yolo_detector import YOLODetector, Detection
 from src.utils.logger import get_logger, setup_logger
+from server.gemini_live_client import GeminiLiveClient
 
 logger = get_logger()
 
@@ -101,9 +102,15 @@ class VisionGuideServer:
         model_path: str = "yolo26n.pt",
         confidence: float = 0.5,
         device: str = "auto",
+        alert_front_distance: float = 2.0,
+        alert_side_distance: float = 1.0,
         max_clients: int = 5,
         max_frame_size: int = 10 * 1024 * 1024,
         use_llm: bool = False,
+        use_vision: bool = False,
+        use_live: bool = False,
+        live_model: str = "gemini-3.1-flash-live-preview",
+        live_frame_interval: float = 1.5,
         llm_provider: str = "ollama",
         llm_model: str = "qwen2.5:7b",
         llm_base_url: Optional[str] = None,
@@ -114,6 +121,12 @@ class VisionGuideServer:
         self.host = host
         self.port = port
         self.use_llm = use_llm
+        self._use_vision = use_vision
+        self._alert_front_dist = alert_front_distance
+        self._alert_side_dist = alert_side_distance
+        self._use_live = use_live
+        self._live_model = live_model
+        self._live_frame_interval = live_frame_interval
         self._max_clients = max_clients
         self._ws_max_size = max(1024 * 1024, int(max_frame_size * 2))
         self._llm_provider = llm_provider
@@ -137,9 +150,14 @@ class VisionGuideServer:
         # 统计
         self._frame_count = 0
         self._start_time = time.time()
-        
-        # LLM (可选)
+
+        # LLM（后台异步运行，帧处理不阻塞）
         self._advisor = None
+        self._llm_cache: str = ""              # 上次 LLM 输出，供当前帧立即返回
+        self._llm_task: Optional[asyncio.Task] = None  # 正在运行的后台 Task
+
+        # Gemini Live 会话（每个客户端连接独立创建）
+        self._live_client: Optional[GeminiLiveClient] = None
     
     async def start(self):
         """启动服务器"""
@@ -199,6 +217,7 @@ class VisionGuideServer:
             max_size=self._ws_max_size,
             ssl=ssl_context,
             process_request=_ws_process_request,
+            ping_interval=None,   # 摄像头帧流即活跃证明，无需 keepalive ping
         ):
             logger.info(f"服务器已启动（{'TLS 加密' if ssl_context else '无加密'}），等待客户端连接...")
             await asyncio.Future()  # 永久运行
@@ -214,16 +233,44 @@ class VisionGuideServer:
             return
         
         self._clients.add(websocket)
-        
+
+        # 为此客户端建立 Gemini Live 会话
+        if self._use_live and self._live_client is None:
+            import os as _os
+            api_key = _os.getenv("GOOGLE_API_KEY", "")
+            if api_key:
+                live = GeminiLiveClient(
+                    api_key=api_key,
+                    model=self._live_model,
+                    frame_interval=self._live_frame_interval,
+                )
+                ok = await live.connect()
+                if ok:
+                    def _on_live_text(text: str) -> None:
+                        self._llm_cache = text
+                        logger.info(f"[Live] {text}")
+                    live.set_text_callback(_on_live_text)
+                    self._live_client = live
+                    logger.info(f"[Live] 已为客户端 {client_id} 创建 Live 会话")
+                else:
+                    logger.warning("[Live] 连接失败，降级为批量推理")
+            else:
+                logger.warning("[Live] 未找到 GOOGLE_API_KEY，跳过 Live 模式")
+
         try:
             async for message in websocket:
                 await self._process_message(websocket, message)
         except websockets.exceptions.ConnectionClosed:
             logger.info(f"客户端断开: {client_id}")
         except Exception as e:
-            logger.error(f"处理客户端错误: {e}")
+            if "resume_reading" not in str(e):
+                logger.error(f"处理客户端错误: {e}")
         finally:
             self._clients.discard(websocket)
+            if self._live_client is not None:
+                await self._live_client.close()
+                self._live_client = None
+                logger.info(f"[Live] 客户端 {client_id} 断开，Live 会话已关闭")
     
     async def _process_message(
         self,
@@ -282,9 +329,22 @@ class VisionGuideServer:
             }
             objects.append(obj)
         
-        # 生成语音文本
         frame_height, frame_width = frame.shape[:2]
-        tts_text = await self._generate_tts_text(detections, frame_width, frame_height)
+
+        # 只对报警距离内的目标生成 TTS / 送给 LLM
+        alert_dets = self._filter_for_alert(detections, frame_width, frame_height)
+
+        if alert_dets:
+            if self._live_client and self._live_client.connected:
+                yolo_ctx = self._format_yolo_context(alert_dets, frame_width, frame_height)
+                await self._live_client.send_frame(frame, yolo_ctx)
+            elif self._advisor:
+                self._maybe_start_llm_task(alert_dets, frame_width, frame_height, frame)
+            tts_text = self._llm_cache if self._llm_cache else self._quick_tts(alert_dets)
+        else:
+            # 无相关目标：清空缓存，不播报
+            self._llm_cache = ""
+            tts_text = ""
         
         # 计算处理时间
         process_time = (time.time() - start_time) * 1000
@@ -327,44 +387,118 @@ class VisionGuideServer:
             return 3.0
         return 4.0
 
-    async def _generate_tts_text(self, detections: List[Detection], frame_width: int, frame_height: int) -> str:
-        """生成语音播报文本"""
+    # ------------------------------------------------------------------
+    # LLM 后台推理（不阻塞帧处理循环）
+    # ------------------------------------------------------------------
+
+    def _maybe_start_llm_task(
+        self,
+        detections: List[Detection],
+        frame_width: int,
+        frame_height: int,
+        frame,
+    ) -> None:
+        """若满足间隔条件且无正在运行的 Task，则启动后台 LLM 推理"""
+        if not self._advisor or not detections:
+            return
+        now = time.time()
+        if now - self._last_llm_time < self._llm_min_interval:
+            return
+        if self._llm_task and not self._llm_task.done():
+            return
+        self._last_llm_time = now
+        self._llm_task = asyncio.create_task(
+            self._run_llm_and_cache(detections, frame_width, frame_height, frame)
+        )
+
+    async def _run_llm_and_cache(
+        self,
+        detections: List[Detection],
+        frame_width: int,
+        frame_height: int,
+        frame,
+    ) -> None:
+        """在后台调用 LLM，将结果写入缓存"""
+        enriched = [
+            {
+                "name": self._detector.get_class_name_zh(d.class_name),
+                "position": d.relative_position,
+                "confidence": round(d.confidence, 2),
+                "distance": self._estimate_distance(d, frame_width, frame_height),
+            }
+            for d in detections
+        ]
+        try:
+            if self._use_vision and frame is not None:
+                import tempfile, os as _os
+                fd, tmp_path = tempfile.mkstemp(suffix=".jpg")
+                _os.close(fd)
+                try:
+                    cv2.imwrite(tmp_path, frame)
+                    result = await asyncio.to_thread(
+                        self._advisor.analyze_scene_with_image,
+                        enriched, [tmp_path]
+                    )
+                finally:
+                    try:
+                        _os.unlink(tmp_path)
+                    except Exception:
+                        pass
+            else:
+                result = await asyncio.to_thread(
+                    self._advisor.analyze_scene_enriched, enriched
+                )
+            if result:
+                self._llm_cache = result
+                logger.info(f"[LLM] {result}")
+        except Exception as e:
+            logger.warning(f"LLM 后台推理失败: {e}")
+
+    def _filter_for_alert(
+        self,
+        detections: List[Detection],
+        frame_width: int,
+        frame_height: int,
+    ) -> List[Detection]:
+        """
+        只保留在报警距离内的检测目标：
+          正前方 ≤ alert_front_distance
+          左/右侧 ≤ alert_side_distance
+        """
+        result = []
+        for det in detections:
+            dist = self._estimate_distance(det, frame_width, frame_height)
+            pos = det.relative_position
+            if "前" in pos and dist <= self._alert_front_dist:
+                result.append(det)
+            elif ("左" in pos or "右" in pos) and dist <= self._alert_side_dist:
+                result.append(det)
+        return result
+
+    def _format_yolo_context(
+        self, detections: List[Detection], frame_width: int, frame_height: int
+    ) -> str:
+        """将 YOLO 检测结果格式化为 Live API 文字上下文"""
+        if not detections:
+            return "YOLO: 未检测到障碍物"
+        parts = [
+            f"{self._detector.get_class_name_zh(d.class_name)}"
+            f"({d.relative_position},{self._estimate_distance(d, frame_width, frame_height):.1f}m)"
+            for d in detections
+        ]
+        return "YOLO: " + " ".join(parts)
+
+    def _quick_tts(self, detections: List[Detection]) -> str:
+        """LLM 未就绪时的即时规则播报"""
         if not detections:
             return ""
-        
-        # 使用 LLM（如果启用）
-        if self._advisor:
-            now = time.time()
-            if now - self._last_llm_time >= self._llm_min_interval:
-                self._last_llm_time = now
-
-                top_det = max(detections, key=lambda x: x.confidence)
-                name_zh = self._detector.get_class_name_zh(top_det.class_name)
-                distance = self._estimate_distance(top_det, frame_width, frame_height)
-
-                try:
-                    return await asyncio.to_thread(
-                        self._advisor.generate_warning,
-                        top_det,
-                        distance=distance,
-                        object_name=name_zh
-                    )
-                except Exception as e:
-                    logger.warning(f"LLM 生成播报失败: {e}")
-        
-        # 简单生成
         if len(detections) == 1:
-            det = detections[0]
-            name_zh = self._detector.get_class_name_zh(det.class_name)
-            return f"注意{det.relative_position}有{name_zh}"
-        else:
-            # 多个目标
-            positions = set(d.relative_position for d in detections)
-            if len(positions) == 1:
-                pos = list(positions)[0]
-                return f"注意{pos}有{len(detections)}个物体"
-            else:
-                return f"周围检测到{len(detections)}个物体，请注意避让"
+            d = detections[0]
+            return f"注意{d.relative_position}有{self._detector.get_class_name_zh(d.class_name)}"
+        positions = set(d.relative_position for d in detections)
+        if len(positions) == 1:
+            return f"注意{list(positions)[0]}有{len(detections)}个物体"
+        return f"周围检测到{len(detections)}个物体，请注意避让"
     
     @property
     def client_count(self) -> int:
@@ -425,7 +559,13 @@ async def main():
         model_path=detection_cfg.get("model", "yolo26n.pt"),
         confidence=float(detection_cfg.get("confidence", 0.5)),
         device=str(detection_cfg.get("device", "auto")),
+        alert_front_distance=float(detection_cfg.get("alert_front_distance", 2.0)),
+        alert_side_distance=float(detection_cfg.get("alert_side_distance", 1.0)),
         use_llm=bool(llm_cfg.get("use_llm", False)),
+        use_vision=bool(llm_cfg.get("use_vision", False)),
+        use_live=bool(llm_cfg.get("use_live", False)),
+        live_model=str(llm_cfg.get("live_model", "gemini-3.1-flash-live-preview")),
+        live_frame_interval=float(llm_cfg.get("live_frame_interval", 1.5)),
         llm_provider=str(llm_cfg.get("provider", "ollama")),
         llm_model=str(llm_cfg.get("model", "qwen2.5:7b")),
         llm_base_url=llm_cfg.get("base_url"),

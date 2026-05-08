@@ -16,14 +16,23 @@ detection:
   model: "yolo26n.pt"
   confidence: 0.5
   device: "auto"
+  alert_front_distance: 2.0   # 正前方触发报警的最大距离（米）
+  alert_side_distance: 1.0    # 左/右侧触发报警的最大距离（米）
 
 llm:
-  provider: "openai"
-  model: "gpt-4o-mini"
-  base_url: "https://api.openai.com/v1"  # OpenAI 接口地址（也可填写兼容 OpenAI 的转发地址）
-  use_llm: true             # 是否启用 LLM（启用前请先配置 OPENAI_API_KEY）
-  min_interval: 2.0         # 服务端 LLM 播报最小间隔（秒）
-  # api_key: 从环境变量 OPENAI_API_KEY 读取（建议写入 .env，不要提交）
+  # ── Live API 配置（首选，实时双向流）────────────────────────────────
+  use_live: true                        # 启用 Gemini Live API
+  live_model: "gemini-3.1-flash-live-preview"
+  live_frame_interval: 1.5             # 每隔多少秒向 Live API 推一帧（秒）
+
+  # ── 批量推理降级配置（Live 不可用时自动切换）────────────────────────
+  use_llm: true
+  provider: "gemma4"
+  model: "gemma-4-26b-a4b-it"
+  use_vision: false                    # Live 模式直接推帧，无需临时文件
+  min_interval: 3.0
+
+  # api_key: 从环境变量 GOOGLE_API_KEY 读取（已写入 .env）
 
 ssl:
   # 与 HTTPS 服务器共用同一套证书（先运行 python mobile/start_https_server.py 生成）

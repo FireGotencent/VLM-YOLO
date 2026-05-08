@@ -360,6 +360,10 @@ class GeminiProvider(LLMProvider):
                 contents.append(types.Content(role="model", parts=[types.Part(text=content)]))
         return system_instruction, contents
 
+    def _is_retryable(self, exc: Exception) -> bool:
+        msg = str(exc)
+        return any(code in msg for code in ("500", "503", "INTERNAL", "UNAVAILABLE"))
+
     def chat(
         self,
         messages: List[Dict[str, str]],
@@ -367,24 +371,28 @@ class GeminiProvider(LLMProvider):
         max_tokens: int = 512,
         **kwargs
     ) -> str:
-        try:
-            from google.genai import types
-            client = self._get_client()
-            system_instruction, contents = self._build_contents(messages)
-            config = types.GenerateContentConfig(
-                temperature=temperature,
-                max_output_tokens=max_tokens,
-                system_instruction=system_instruction,
-            )
-            response = client.models.generate_content(
-                model=self.model,
-                contents=contents,
-                config=config,
-            )
-            return response.text
-        except Exception as e:
-            logger.error(f"Gemini 调用失败: {e}")
-            raise
+        import time as _time
+        from google.genai import types
+        client = self._get_client()
+        system_instruction, contents = self._build_contents(messages)
+        config = types.GenerateContentConfig(
+            temperature=temperature,
+            max_output_tokens=max_tokens,
+            system_instruction=system_instruction,
+        )
+        for attempt in range(3):
+            try:
+                return client.models.generate_content(
+                    model=self.model, contents=contents, config=config,
+                ).text
+            except Exception as e:
+                if self._is_retryable(e) and attempt < 2:
+                    wait = 2 ** attempt
+                    logger.warning(f"Gemini 暂时不可用（{e}），{wait}s 后重试 ({attempt+1}/2)...")
+                    _time.sleep(wait)
+                    continue
+                logger.error(f"Gemini 调用失败: {e}")
+                raise
 
     def chat_stream(
         self,
@@ -422,45 +430,48 @@ class GeminiProvider(LLMProvider):
         **kwargs
     ) -> str:
         """多模态对话，将图像附加到最后一条 user 消息"""
-        try:
-            from google.genai import types
-            client = self._get_client()
-            system_instruction, contents = self._build_contents(messages)
+        import time as _time
+        from google.genai import types
+        client = self._get_client()
+        system_instruction, contents = self._build_contents(messages)
 
-            # 把图像注入最后一条 user Content
-            if images and contents:
-                last_user_idx = next(
-                    (i for i in range(len(contents) - 1, -1, -1)
-                     if contents[i].role == "user"),
-                    None
-                )
-                if last_user_idx is not None:
-                    extra_parts = []
-                    for img_path in images:
-                        with open(img_path, "rb") as f:
-                            img_bytes = f.read()
-                        extra_parts.append(
-                            types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")
-                        )
-                    contents[last_user_idx] = types.Content(
-                        role="user",
-                        parts=list(contents[last_user_idx].parts) + extra_parts,
+        if images and contents:
+            last_user_idx = next(
+                (i for i in range(len(contents) - 1, -1, -1)
+                 if contents[i].role == "user"),
+                None
+            )
+            if last_user_idx is not None:
+                extra_parts = []
+                for img_path in images:
+                    with open(img_path, "rb") as f:
+                        img_bytes = f.read()
+                    extra_parts.append(
+                        types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")
                     )
+                contents[last_user_idx] = types.Content(
+                    role="user",
+                    parts=list(contents[last_user_idx].parts) + extra_parts,
+                )
 
-            config = types.GenerateContentConfig(
-                temperature=temperature,
-                max_output_tokens=max_tokens,
-                system_instruction=system_instruction,
-            )
-            response = client.models.generate_content(
-                model=self.model,
-                contents=contents,
-                config=config,
-            )
-            return response.text
-        except Exception as e:
-            logger.error(f"Gemini Vision 调用失败: {e}")
-            raise
+        config = types.GenerateContentConfig(
+            temperature=temperature,
+            max_output_tokens=max_tokens,
+            system_instruction=system_instruction,
+        )
+        for attempt in range(3):
+            try:
+                return client.models.generate_content(
+                    model=self.model, contents=contents, config=config,
+                ).text
+            except Exception as e:
+                if self._is_retryable(e) and attempt < 2:
+                    wait = 2 ** attempt
+                    logger.warning(f"Gemini Vision 暂时不可用，{wait}s 后重试 ({attempt+1}/2)...")
+                    _time.sleep(wait)
+                    continue
+                logger.error(f"Gemini Vision 调用失败: {e}")
+                raise
 
 
 class Gemma4Provider(GeminiProvider):

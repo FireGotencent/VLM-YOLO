@@ -9,9 +9,11 @@ from src.detection.yolo_detector import Detection
 from src.reasoning.llm_engine import LLMEngine
 from src.reasoning.prompt_templates import (
     SYSTEM_PROMPT,
+    VISION_NAV_TEMPLATE,
     build_scene_prompt,
     build_warning_prompt,
-    build_path_prompt
+    build_path_prompt,
+    format_detections,
 )
 from src.utils.config import get_config
 from src.utils.logger import get_logger
@@ -147,6 +149,56 @@ class NavigationAdvisor:
                 left_obstacles, front_obstacles, right_obstacles
             )
     
+    def analyze_scene_enriched(self, det_list: list) -> str:
+        """
+        全场景分析（接受预构建的字典列表，含距离和中文名）
+
+        Args:
+            det_list: [{"name": "行人", "position": "正前方", "distance": 1.2, "confidence": 0.9}, ...]
+        """
+        if not det_list:
+            return "前方道路畅通，可以继续前行。"
+        prompt = build_scene_prompt(det_list)
+        try:
+            return self._llm.chat(prompt, use_history=False)
+        except Exception as e:
+            logger.error(f"生成场景描述失败: {e}")
+            return self._fallback_rich(det_list)
+
+    def analyze_scene_with_image(self, det_list: list, image_paths: list) -> str:
+        """
+        多模态场景分析：将摄像头图像 + YOLO 文字描述一同发给 LLM
+
+        Args:
+            det_list:     预构建的检测字典列表
+            image_paths:  临时图像文件路径列表
+        """
+        formatted = format_detections(det_list) if det_list else "未检测到特定物体"
+        prompt = VISION_NAV_TEMPLATE.format(detections=formatted)
+        messages = [{"role": "user", "content": prompt}]
+        try:
+            return self._llm._provider.chat_with_vision(
+                messages=messages,
+                images=image_paths,
+                temperature=0.5,
+                max_tokens=128,
+            )
+        except NotImplementedError:
+            logger.warning("当前 LLM 提供商不支持多模态，降级为纯文本分析")
+            return self.analyze_scene_enriched(det_list)
+        except Exception as e:
+            logger.error(f"多模态分析失败: {e}")
+            return self.analyze_scene_enriched(det_list)
+
+    def _fallback_rich(self, det_list: list) -> str:
+        """LLM 不可用时的纯规则降级输出"""
+        parts = [
+            f"{d.get('position', '')}有{d.get('name', '物体')}"
+            + (f"（约{d['distance']}米）" if "distance" in d else "")
+            for d in det_list
+        ]
+        return "检测到：" + "，".join(parts) + "。请小心前行。"
+
     def quick_alert(self, detections: List[Detection]) -> Optional[str]:
         """
         快速警报（不使用 LLM，直接生成）
